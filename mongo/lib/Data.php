@@ -5,6 +5,15 @@
  */
 abstract  class Data {
     protected static $connections = array();
+    protected $fields = array();
+    //avoid to new base class directly such as MongoData, MysqlData etc.
+    private function __construct() {}
+    
+    protected function __clone() {
+        foreach ($this->fields as $property => $field)
+            $this->{$property} = null;        
+    }
+
     abstract protected function load($id) ;
     
     abstract protected function loadByIds(array $ids);
