@@ -28,6 +28,8 @@ abstract  class Data {
     
     abstract protected function remove($id);
     
+    abstract protected function count(array $query);
+    
     abstract protected function getConnection($flag = null);        
 }
 
