@@ -40,14 +40,11 @@ print_r($user3->findOne(
         array('name' => -1)
 ));
 $user1 = new User();
-foreach ($user1->find()->sort(array('name' => -1)) as $v) {
-    print_r($v);
-}
+print_r($user1->find()->sort(array('name' => -1))->findResult());
+
 
 $user2 = new User();
-foreach ($user2->find(array('name' => 'dengjing')) as $v) {
-    print_r($v);
-}
+print_r($user2->find(array('name' => 'dengjing'))->findResult());
 var_dump($user2->count());
 $demo = new Demo();
 //print_r($demo->load('50bd5f5cf3521a0f04000009'));

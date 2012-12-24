@@ -132,6 +132,13 @@ class MongoData extends Data implements Iterator{
         return $this;        
     }
     
+    public function findResult() {
+        $result = array();
+        if ($this->mongoCursor instanceof MongoCursor)
+            $result = iterator_to_array ($this);
+        return $result;
+    }
+    
     /**
      * find only one doc by query
      * @param array $query query criteria
@@ -139,7 +146,7 @@ class MongoData extends Data implements Iterator{
      * @return object the one doc that find in mongodb, return null if not exists
     */
     public function findOne(array $query = array(), array $sort = array()) {
-        $result = iterator_to_array($this->find($query)->sort($sort)->limit(1));
+        $result = $this->find($query)->sort($sort)->limit(1)->findResult();
         $this->increaseCounter();
         return current($result) ? current($result) : null;
     }
