@@ -3,11 +3,31 @@
  * @author jingd <jingd3@jumei.com>
  */
 require strtr(dirname(__FILE__) . DIRECTORY_SEPARATOR, '\\', '/') . "config/init.php";
+echo "<pre>";
+try {
+    $gourpUser = new User();
+    $ret = $gourpUser->group(
+            array('name'), 
+            array('count' => 0, 'ageSum' => 0),
+            'prev.count++;prev.ageSum += obj.age',
+            array(array('age' => array('$gte' => 10)))
+    );
+    print_r($ret);
+    $demo = new Demo();
+    $ret = $demo->group(array('number'), array('count' => 0, 'sum' => 0), 'prev.count++;prev.sum += obj.number', array('number' => array('$gte' => 8)));
+    print_r($ret);
+} catch (Exception $e) {
+    echo $e->getMessage();
+}
+
 $u = new User();
 $u->find(array('name' => 'dengjing34'));
-$uu = current(iterator_to_array($u));
+$uu = current($u->findResult());
+$uu->name = 'dengjing34';
 $uu->id = 43;
 $uu->status = 0;
+$uu->age = 25;
+$uu->tag = array('movie', 'swimming', 'running', 'tennis');
 $uu->save();
 print_r($uu);
 
@@ -50,6 +70,9 @@ $demo = new Demo();
 //print_r($demo->load('50bd5f5cf3521a0f04000009'));
 //print_r($demo->load('50bd5f5cf3521a0f04000005'));
 print_r($demo->loadByIds(array('50bd5f5cf3521a0f04000009', '50bd5f5cf3521a0c04000000')));
+print_r($demo->find()->limit(10)->sort(array('name' => 1))->findResult());
+print_r($demo->find()->limit(3)->sort(array('name' => -1))->findResult());
 var_dump($demo->count(array('number' => 2)));
 //$demo->number = 1;
+//var_dump(MongoData::$db, MongoData::$collection, MongoData::$mongoCollection, MongoData::$mongoDb, MongoData::$mongoCursor);
 ?>

@@ -3,15 +3,24 @@
  *
  * @author jingd <jingd3@jumei.com>
  */
-abstract  class Data {
+abstract class Data {
     protected static $connections = array();
-    protected $fields = array();
+    protected static $fields = array();
     //avoid to new base class directly such as MongoData, MysqlData etc.
     private function __construct() {}
     
     protected function __clone() {
-        foreach ($this->fields as $property => $field)
-            $this->{$property} = null;        
+        $this->clean();       
+    }
+    
+    /**
+     * clean object's properties by $fields
+     * @return $this
+     */
+    protected function clean() {        
+        foreach (self::$fields[get_parent_class($this)][get_class($this)] as $property => $field)
+            $this->{$property} = null;
+        return $this;
     }
 
     abstract protected function load($id) ;
@@ -26,7 +35,7 @@ abstract  class Data {
     
     abstract protected function save(array $data);
     
-    abstract protected function remove($id);
+    abstract protected function remove($id = null);
     
     abstract protected function count(array $query);
     
