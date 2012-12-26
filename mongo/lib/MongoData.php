@@ -94,8 +94,9 @@ class MongoData extends Data implements Iterator{
         $id = is_null($id) ? $this->_id : $id;
         if ($id instanceof MongoId) $id = (string)$id;
         if (!is_scalar($id) || !ctype_alnum((string)$id)) throw new Exception("{$id} is not a scalar");
+        $fields = array_fill_keys($this->getFields(), true);
         try {
-            $result = $this->getCollection()->findOne(array('_id' => new MongoId($id)));
+            $result = $this->getCollection()->findOne(array('_id' => new MongoId($id)), $fields);
             $this->increaseCounter();
         } catch (MongoCursorException $e) {
             throw new Exception($e->getMessage());
@@ -127,7 +128,8 @@ class MongoData extends Data implements Iterator{
     public function find(array $query = array()) {        
         $finalQuery = $this->getQuery($query);//merge self properties and custom query                
         try {
-            $this->setMongoCursor($this->getCollection()->find($finalQuery));                        
+            $fields = array_fill_keys($this->getFields(), true);            
+            $this->setMongoCursor($this->getCollection()->find($finalQuery, $fields));                        
             $this->increaseCounter();
         } catch (MongoCursorException $e) {
             throw new Exception($e->getMessage());
@@ -349,8 +351,9 @@ class MongoData extends Data implements Iterator{
             $mongoIds = array_map(function($v) {
                 return new MongoId($v);
             }, $ids);
+            $fields = array_fill_keys($this->getFields(), true);
             foreach (array_chunk($mongoIds, 100) as $eachMongoIds) {
-                $cursor = $this->getCollection()->find(array('_id' => array('$in' => $eachMongoIds)));//don't use $this->find() here, only '_id' will be used to query
+                $cursor = $this->getCollection()->find(array('_id' => array('$in' => $eachMongoIds)), $fields);//don't use $this->find() here, only '_id' will be used to query
                 $this->increaseCounter();
                 //$data = iterator_to_array($cursor);
                 foreach ($cursor as $key => $value) {
