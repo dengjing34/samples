@@ -102,7 +102,7 @@ class MongoData extends Data implements Iterator{
         }        
         if (empty($result)) throw new Exception(get_class($this) . "::{$id} not found");
         if (is_null($this->_id)) $this->_id = (string)$result['_id'];// can't use $this->parseDoc($result) 
-        foreach (self::$fields[__CLASS__][get_class($this)] as $property => $field) $this->{$property} = isset($result[$field]) ? $result[$field] : null;
+        foreach ($this->getFields() as $property => $field) $this->{$property} = isset($result[$field]) ? $result[$field] : null;
         return $this;
     }
     
@@ -127,7 +127,7 @@ class MongoData extends Data implements Iterator{
     public function find(array $query = array()) {        
         $finalQuery = $this->getQuery($query);//merge self properties and custom query                
         try {
-            self::$mongoCursor[get_class($this)] = $this->getCollection()->find($finalQuery);                        
+            $this->setMongoCursor($this->getCollection()->find($finalQuery));                        
             $this->increaseCounter();
         } catch (MongoCursorException $e) {
             throw new Exception($e->getMessage());
@@ -137,7 +137,7 @@ class MongoData extends Data implements Iterator{
     
     public function findResult() {
         $result = array();
-        if (self::$mongoCursor[get_class($this)] instanceof MongoCursor)
+        if ($this->getMongoCursor() instanceof MongoCursor)
             $result = iterator_to_array ($this);
         return $result;
     }
@@ -160,8 +160,8 @@ class MongoData extends Data implements Iterator{
      * @return \MongoData MongoData object
      */
     public function sort(array $sort = array()) {
-        if (!empty($sort) && self::$mongoCursor[get_class($this)] instanceof MongoCursor)
-            self::$mongoCursor[get_class($this)]->sort($sort);       
+        if (!empty($sort) && $this->getMongoCursor() instanceof MongoCursor)
+            $this->getMongoCursor()->sort($sort);       
         return $this;
     }
     
@@ -171,8 +171,8 @@ class MongoData extends Data implements Iterator{
      * @return \MongoData MongoData object
      */
     public function skip($num) {
-        if (is_numeric($num) && self::$mongoCursor[get_class($this)] instanceof MongoCursor)
-            self::$mongoCursor[get_class($this)]->skip((int)$num);
+        if (is_numeric($num) && $this->getMongoCursor() instanceof MongoCursor)
+            $this->getMongoCursor()->skip((int)$num);
         return $this;
     }
     
@@ -182,8 +182,8 @@ class MongoData extends Data implements Iterator{
      * @return \MongoData MongoData object
      */
     public function limit($num) {
-        if (is_numeric($num) && self::$mongoCursor[get_class($this)] instanceof MongoCursor)
-            self::$mongoCursor[get_class($this)]->limit((int)$num);
+        if (is_numeric($num) && $this->getMongoCursor() instanceof MongoCursor)
+            $this->getMongoCursor()->limit((int)$num);
         return $this;
     }
     
@@ -194,6 +194,16 @@ class MongoData extends Data implements Iterator{
     final private function increaseCounter() {
         self::$counter++;
         return $this;
+    }
+
+    /**
+     * The distinct command returns a list of distinct values for the given key across a collection.
+     * @param string $key The key to use
+     * @param array $query An optional query parameters
+     * @return array an array of distinct values, or FALSE on failure
+     */
+    public function distinct($key, array $query = array()) {
+        return !empty($key) && array_key_exists($key, $this->getFields()) ? $this->getCollection()->distinct($key, $this->getQuery($query)) : array();
     }
     
     /**
@@ -213,7 +223,7 @@ class MongoData extends Data implements Iterator{
         $result = array();
         $forbiddenOperators = array('sort', 'skip', 'limit');        
         if (!empty($this->_id)) $result['_id'] = $this->_id;
-        foreach (self::$fields[__CLASS__][get_class($this)] as $property => $field) {
+        foreach ($this->getFields() as $property => $field) {
             if (is_scalar($this->{$property}) && !empty($this->{$property})) {
                 $result[$field] = $this->{$property}; //if is scalar use equal directly
             } elseif (is_array($this->{$property}) && !empty($this->{$property})) {
@@ -317,6 +327,7 @@ class MongoData extends Data implements Iterator{
         $allowOptions['w'] = 1;
         try {
             $result = $this->getCollection()->save($this->parsePropery(true), $allowOptions);
+            $this->increaseCounter();
             if ($result['updatedExisting'] == false && isset($result['upserted'])) {//upsert behavior get insertid to assing _id property
                 $this->_id = (string)$result['upserted'];
             } 
@@ -338,11 +349,14 @@ class MongoData extends Data implements Iterator{
             $mongoIds = array_map(function($v) {
                 return new MongoId($v);
             }, $ids);
-            $cursor = $this->getCollection()->find(array('_id' => array('$in' => $mongoIds)));//don't use $this->find() here, only '_id' will be used to query
-            //$data = iterator_to_array($cursor);
-            foreach ($cursor as $key => $value) {
-                $result[$key] = $this->parseDoc($value);
-            }
+            foreach (array_chunk($mongoIds, 100) as $eachMongoIds) {
+                $cursor = $this->getCollection()->find(array('_id' => array('$in' => $eachMongoIds)));//don't use $this->find() here, only '_id' will be used to query
+                $this->increaseCounter();
+                //$data = iterator_to_array($cursor);
+                foreach ($cursor as $key => $value) {
+                    $result[$key] = $this->parseDoc($value);
+                }
+            }                        
         }
         return $result;
     }
@@ -370,6 +384,7 @@ class MongoData extends Data implements Iterator{
         if (empty($data)) throw new Exception('insert data is empty');
         try {            
             $this->getCollection()->insert($data, $allowOptions);
+            $this->increaseCounter();
             $this->_id = (string)$data['_id'];
         } catch (MongoCursorException $e) {
             throw new Exception($e->getMessage());
@@ -377,6 +392,55 @@ class MongoData extends Data implements Iterator{
             throw new Exception($e->getMessage());
         }        
         return $this;
+    }
+
+    /**
+     * Inserts multiple documents into this collection
+     * @param array $docs an array which keys of each values must in keys of MongoData::$fields
+     * @param array $options Options for the inserts.
+     * <p>
+     * $options can be blow values<br />
+     * "w" => The default value for MongoClient is 1. <br /><br />
+     * "fsync" => Boolean, defaults to FALSE. Forces the insert to be synced to disk before returning success. If TRUE, an acknowledged insert is implied and will override setting w to 0. <br /><br />
+     * "timeout" => Integer, defaults to MongoCursor::$timeout. If "safe" is set, this sets how long (in milliseconds) for the client to wait for a database response.
+     * If the database does not respond within the timeout period, a MongoCursorTimeoutException will be thrown.<br /><br />
+     * "continueOnError" => Boolean, defaults to FALSE. If set, the database will not stop processing a bulk insert if one fails (eg due to duplicate IDs).
+     * This makes bulk insert behave similarly to a series of single inserts, except that calling MongoDB::lastError() will have an error set if any insert fails, not just the last one. 
+     * If multiple errors occur, only the most recent will be reported by MongoDB::lastError().
+     * "safe" => Deprecated. Please use the WriteConcern w option.     
+     * </p>      
+     * @return array each objects in array with _id 
+     * @throws Exception
+     */
+    public function batchInsert(array $docs = array(), array $options = array()) {
+        $className = get_class($this);
+        $validDocs = array_filter($docs, function($v) {
+            return is_array($v) && !empty($v) ? true : false;
+        });
+        $result = array();
+        if (!empty($validDocs)) {
+            $allowOptions = empty($options) ? $options : array_intersect_key($options, array_flip(array('fsync', 'timeout', 'continueOnError', 'safe')));
+            $allowOptions['w'] = 1;            
+            $insertData = array();
+            $fieldsMapping = $this->getFields();
+            foreach ($validDocs as $key => $eachData) {
+                foreach ($eachData as $k => $v) {
+                    if (isset($fieldsMapping[$k])) {
+                        $insertData[$key][$fieldsMapping[$k]] = $v;
+                    }
+                }
+            }            
+            try {
+                $this->getCollection()->batchInsert($insertData, $allowOptions);
+                foreach ($data as $eachData) {
+                    $result[(string)$eachData['_id']] = $this->parseDoc($eachData);
+                }
+                $this->increaseCounter();
+            } catch (MongoCursorException $e) {
+                throw new Exception($e->getMessage());
+            }
+        }
+        return $result;
     }
     
     /**
@@ -403,6 +467,7 @@ class MongoData extends Data implements Iterator{
             $allowOptions['w'] = 1;
             try {
                 $this->getCollection()->update($criteria, $this->parsePropery(), $allowOptions);
+                $this->increaseCounter();
             } catch (Exception $e) {
                 throw new $e->getMessage();
             }            
@@ -452,7 +517,8 @@ class MongoData extends Data implements Iterator{
      */
     public function group(array $keys = array(), array $initial = array(), $reduce = '', array $options = array()) {                
         $reduceCode = new MongoCode("function (obj, prev) {{$reduce}}");
-        $ret= $this->getCollection()->group(array_flip($keys), $initial, $reduceCode, $options);        
+        $ret = $this->getCollection()->group(array_flip($keys), $initial, $reduceCode, $options);
+        $this->increaseCounter();
         if ($ret['ok'] == 0 && isset($ret['errmsg'])) throw new Exception("errmsg:{$ret['errmsg']}");
         return $ret['retval'];
     }
@@ -465,42 +531,68 @@ class MongoData extends Data implements Iterator{
     private function parseDoc(array $data) {        
         $o = clone $this;// use clone to keep Any properties that are references to other variables, such as MongoClient, MongoCollection, will remain references.                
         $o->_id = isset($data['_id']) ? (string)$data['_id'] : null;
-        foreach (self::$fields[__CLASS__][get_class($o)] as $property => $field) {            
+        foreach ($this->getFields() as $property => $field) {            
             $o->{$property} = isset($data[$field]) ? $data[$field] : null;
         }        
         return $o;
     }
     
     /**
-     * parse object mapping perporties to an array
+     * parse object mapping perporties to an array. public this method for batchInsert() to use
      * @param bool $_id if include _id field , 'true' means include 'false' means not
      * @return array an array with mongodb fields as keys
      */
-    private function parsePropery($_id = false) {
+    public function parsePropery($_id = false) {
         $data = $_id ? array('_id' => new MongoId($this->_id)) : array();
-        foreach (self::$fields[__CLASS__][get_class($this)] as $property => $field) $data[$field] = $this->{$property};
+        foreach ($this->getFields() as $property => $field) $data[$field] = $this->{$property};
         return $data;
     }
     
+    /**
+     * return mongocuroser of this class
+     * @return MongoCursor
+     */
+    private function getMongoCursor() {
+        return self::$mongoCursor[get_class($this)];
+    }
+    
+    /**
+     * set mongocursor object to self::$mongoCursor array
+     * @param MongoCursor $cursor
+     * @return \MongoData
+     */
+    private function setMongoCursor(MongoCursor $cursor) {
+        self::$mongoCursor[get_class($this)] = $cursor;
+        return $this;
+    }
+    
+    /**
+     * get instance class's fields mapping
+     * @return array collection's fields mapping array
+     */
+    private function getFields() {
+        return self::$fields[__CLASS__][get_class($this)];
+    }
+    
     public function current() {
-        $result = self::$mongoCursor[get_class($this)] instanceof MongoCursor ? $this->parseDoc(self::$mongoCursor[get_class($this)]->current()) : null;        
+        $result = $this->getMongoCursor() instanceof MongoCursor ? $this->parseDoc($this->getMongoCursor()->current()) : null;        
         return $result;
     }
 
     public function next() {
-        return self::$mongoCursor[get_class($this)] instanceof MongoCursor ? self::$mongoCursor[get_class($this)]->next() : null;
+        return $this->getMongoCursor() instanceof MongoCursor ? $this->getMongoCursor()->next() : null;
     }
 
     public function key() {
-        return self::$mongoCursor[get_class($this)] instanceof MongoCursor ? self::$mongoCursor[get_class($this)]->key() : null;
+        return $this->getMongoCursor() instanceof MongoCursor ? $this->getMongoCursor()->key() : null;
     }
 
     public function valid() {
-        return self::$mongoCursor[get_class($this)] instanceof MongoCursor ? self::$mongoCursor[get_class($this)]->valid() : false;
+        return $this->getMongoCursor() instanceof MongoCursor ? $this->getMongoCursor()->valid() : false;
     }
 
     public function rewind() {
-        return self::$mongoCursor[get_class($this)] instanceof MongoCursor ? self::$mongoCursor[get_class($this)]->rewind() : null;
+        return $this->getMongoCursor() instanceof MongoCursor ? $this->getMongoCursor()->rewind() : null;
     }
      
 }

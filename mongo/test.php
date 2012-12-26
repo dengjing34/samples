@@ -11,10 +11,14 @@ try {
             array('count' => 0, 'ageSum' => 0),
             'prev.count++;prev.ageSum += obj.age',
             array(array('age' => array('$gte' => 10)))
-    );
+    );   
     print_r($ret);
+    print_r($gourpUser->distinct('name'));
+    $distinctUser = new User();
+    $distinctUser->name = 'dengjing';
+    var_dump($distinctUser->distinct('name'));
     $demo = new Demo();
-    $ret = $demo->group(array('number'), array('count' => 0, 'sum' => 0), 'prev.count++;prev.sum += obj.number', array('number' => array('$gte' => 8)));
+    $ret = $demo->group(array('number'), array('count' => 0, 'sum' => 0), 'prev.count++;prev.sum += obj.number', array('number' => array('$lte' => 5)));
     print_r($ret);
 } catch (Exception $e) {
     echo $e->getMessage();
@@ -70,7 +74,7 @@ $demo = new Demo();
 //print_r($demo->load('50bd5f5cf3521a0f04000009'));
 //print_r($demo->load('50bd5f5cf3521a0f04000005'));
 print_r($demo->loadByIds(array('50bd5f5cf3521a0f04000009', '50bd5f5cf3521a0c04000000')));
-print_r($demo->find()->limit(10)->sort(array('name' => 1))->findResult());
+print_r($demo->find()->limit(3)->sort(array('name' => 1))->findResult());
 print_r($demo->find()->limit(3)->sort(array('name' => -1))->findResult());
 var_dump($demo->count(array('number' => 2)));
 //$demo->number = 1;
