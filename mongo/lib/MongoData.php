@@ -326,7 +326,7 @@ class MongoData extends Data implements Iterator{
         $allowOptions = empty($options) ? $options : array_intersect_key($options, array_flip(array('fsync', 'timeout', 'safe')));
         $allowOptions['w'] = 1;
         try {
-            $result = $this->getCollection()->save($this->parsePropery(true), $allowOptions);
+            $result = $this->getCollection()->save($this->parseProperty(true), $allowOptions);
             $this->increaseCounter();
             if ($result['updatedExisting'] == false && isset($result['upserted'])) {//upsert behavior get insertid to assing _id property
                 $this->_id = (string)$result['upserted'];
@@ -380,7 +380,7 @@ class MongoData extends Data implements Iterator{
     public function insert(array $options = array()) {
         $allowOptions = !empty($options) ? array_intersect_key($options, array_flip(array('fsync', 'timeout', 'safe'))) : $options;
         $allowOptions['w'] = 1;
-        $data = $this->parsePropery();        
+        $data = $this->parseProperty();        
         if (empty($data)) throw new Exception('insert data is empty');
         try {            
             $this->getCollection()->insert($data, $allowOptions);
@@ -466,7 +466,7 @@ class MongoData extends Data implements Iterator{
             $allowOptions = empty($options) ? $options : array_intersect_key($options, array_flip(array('upsert', 'multiple', 'fsync', 'timeout', 'safe')));
             $allowOptions['w'] = 1;
             try {
-                $this->getCollection()->update($criteria, $this->parsePropery(), $allowOptions);
+                $this->getCollection()->update($criteria, $this->parseProperty(), $allowOptions);
                 $this->increaseCounter();
             } catch (Exception $e) {
                 throw new $e->getMessage();
@@ -538,11 +538,11 @@ class MongoData extends Data implements Iterator{
     }
     
     /**
-     * parse object mapping perporties to an array. public this method for batchInsert() to use
+     * parse object mapping perporties to an array.
      * @param bool $_id if include _id field , 'true' means include 'false' means not
      * @return array an array with mongodb fields as keys
      */
-    public function parsePropery($_id = false) {
+    public function parseProperty($_id = false) {
         $data = $_id ? array('_id' => new MongoId($this->_id)) : array();
         foreach ($this->getFields() as $property => $field) $data[$field] = $this->{$property};
         return $data;
