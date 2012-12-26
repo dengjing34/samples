@@ -542,7 +542,7 @@ class MongoData extends Data implements Iterator{
      * @param bool $_id if include _id field , 'true' means include 'false' means not
      * @return array an array with mongodb fields as keys
      */
-    public function parseProperty($_id = false) {
+    private function parseProperty($_id = false) {
         $data = $_id ? array('_id' => new MongoId($this->_id)) : array();
         foreach ($this->getFields() as $property => $field) $data[$field] = $this->{$property};
         return $data;
