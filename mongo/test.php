@@ -32,7 +32,11 @@ $uu->id = 43;
 $uu->status = 0;
 $uu->age = 25;
 $uu->tag = array('movie', 'swimming', 'running', 'tennis');
-$uu->save();
+try {
+    $uu->save();
+} catch (Exception $exc) {
+    echo $exc->getMessage() . "\n";
+}
 print_r($uu);
 
 $user = new User();

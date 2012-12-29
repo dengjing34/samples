@@ -25,6 +25,7 @@ class MongoData extends Data implements Iterator{
         $className = get_class($this);
         self::$collection[__CLASS__][$className] = $options['collection'];
         self::$fields[__CLASS__][$className] = $options['fields'];
+        self::$fieldsAttributes[__CLASS__][$className] = isset($options['fieldsAttributes']) ? $options['fieldsAttributes'] : array();
         self::$db[__CLASS__][$className] = isset($options['db']) ? $options['db'] : self::DB_TEST;//if not specify $option['db'] use default
         foreach ($options['fields'] as $field) {
             if (!property_exists($this, $field)) $this->{$field} = null;
@@ -303,7 +304,7 @@ class MongoData extends Data implements Iterator{
                 $this->_id = null;
                 $this->clean(); //clean self if $this->_id in $ids array
             }
-        } catch (Exception $e) {
+        } catch (MongoCursorException $e) {
             throw new Exception($e->getMessage());
         }
         return $result;
@@ -327,15 +328,17 @@ class MongoData extends Data implements Iterator{
     public function save(array $options = array()) {
         $allowOptions = empty($options) ? $options : array_intersect_key($options, array_flip(array('fsync', 'timeout', 'safe')));
         $allowOptions['w'] = 1;
-        try {
-            $result = $this->getCollection()->save($this->parseProperty(true), $allowOptions);
+        try {            
+            $result = $this->validateFields()->getCollection()->save($this->parseProperty(true), $allowOptions);
             $this->increaseCounter();
             if ($result['updatedExisting'] == false && isset($result['upserted'])) {//upsert behavior get insertid to assing _id property
                 $this->_id = (string)$result['upserted'];
             } 
-        } catch (Exception $e) {
+        } catch (MongoCursorException $e) {
             throw new Exception($e->getMessage());
-        }        
+        } catch (Exception $e) {
+            throw new Exception($e->getMessage());//validation exception
+        }       
         return $this;
     }
     
@@ -386,7 +389,7 @@ class MongoData extends Data implements Iterator{
         $data = $this->parseProperty();        
         if (empty($data)) throw new Exception('insert data is empty');
         try {            
-            $this->getCollection()->insert($data, $allowOptions);
+            $this->validateFields()->getCollection()->insert($data, $allowOptions);
             $this->increaseCounter();
             $this->_id = (string)$data['_id'];
         } catch (MongoCursorException $e) {
@@ -412,8 +415,9 @@ class MongoData extends Data implements Iterator{
      * If multiple errors occur, only the most recent will be reported by MongoDB::lastError().
      * "safe" => Deprecated. Please use the WriteConcern w option.     
      * </p>      
-     * @return array each objects in array with _id 
+     * @return array each objects in an array with '_id' field
      * @throws Exception
+     * @link http://us2.php.net/manual/zh/mongocollection.batchinsert.php
      */
     public function batchInsert(array $docs = array(), array $options = array()) {
         $className = get_class($this);
@@ -434,14 +438,18 @@ class MongoData extends Data implements Iterator{
                 }
             }            
             try {
-                $this->getCollection()->batchInsert($insertData, $allowOptions);
-                foreach ($data as $eachData) {
+                $this->validateFieldsArray($insertData)->getCollection()->batchInsert($insertData, $allowOptions);
+                foreach ($insertData as $eachData) {
                     $result[(string)$eachData['_id']] = $this->parseDoc($eachData);
                 }
                 $this->increaseCounter();
             } catch (MongoCursorException $e) {
                 throw new Exception($e->getMessage());
+            } catch (Exception $e) {
+                throw new Exception($e->getMessage());
             }
+        } else {
+            throw new Exception('data going to be inserted are empty');
         }
         return $result;
     }
@@ -468,12 +476,14 @@ class MongoData extends Data implements Iterator{
             $criteria = array('_id' => new MongoId($this->_id));
             $allowOptions = empty($options) ? $options : array_intersect_key($options, array_flip(array('upsert', 'multiple', 'fsync', 'timeout', 'safe')));
             $allowOptions['w'] = 1;
-            try {
-                $this->getCollection()->update($criteria, $this->parseProperty(), $allowOptions);
+            try {                
+                $this->validateFields()->getCollection()->update($criteria, $this->parseProperty(), $allowOptions);
                 $this->increaseCounter();
             } catch (Exception $e) {
                 throw new $e->getMessage();
-            }            
+            } catch (MongoCursorException $e) {
+                throw new Exception($e->getMessage());
+            }           
         } else {
             throw new Exception("_id:{$this->_id} is not alphanumeric or scalar");
         }
@@ -576,7 +586,14 @@ class MongoData extends Data implements Iterator{
     private function getFields() {
         return self::$fields[__CLASS__][get_class($this)];
     }
-    
+
+    /**
+     * init class if static vars are not set when unserialize
+     */
+    public function __wakeup() {
+        if (!isset(self::$fields[__CLASS__][get_class($this)])) $this->__construct();
+    }
+
     public function current() {
         $result = $this->getMongoCursor() instanceof MongoCursor ? $this->parseDoc($this->getMongoCursor()->current()) : null;        
         return $result;

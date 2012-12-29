@@ -19,7 +19,18 @@ class User extends MongoData{
                 'tag',
                 'shape',
                 'lang',
-            )
+            ),
+            'fieldsAttributes' => array(
+                'name' => array(
+                    self::FIELD_RULE => self::FIELD_RULE_ALPHANUM,
+                ),
+                'status' => array(
+                    self::FIELD_REQUIRED => self::FIELD_RULE_NUM,
+                ),
+                'tag' => array(
+                    
+                ),
+            ),
         );
         parent::init($options);
     }
