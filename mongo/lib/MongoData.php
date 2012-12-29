@@ -588,7 +588,7 @@ class MongoData extends Data implements Iterator{
     }
 
     /**
-     * init class if static vars are not set when unserialize
+     * init class if static vars are not set when unserialize, get from memcache, redis, .etc
      */
     public function __wakeup() {
         if (!isset(self::$fields[__CLASS__][get_class($this)])) $this->__construct();
