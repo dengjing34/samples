@@ -1,0 +1,11 @@
+/cache/*
+/upload/*
+/nbproject/*
+#*/config/*
+#!*/config/*.sample.php
+#!*/config/init.php
+# Logs and databases #
+######################
+*.log
+*.sql
+*.sqlite
