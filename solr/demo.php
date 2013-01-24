@@ -6,7 +6,10 @@ require_once strtr(dirname(__FILE__) . DIRECTORY_SEPARATOR, '\\', '/') . "config
 $searcher = new VideoSearcher();
 //$searcher->defaultQuery('-');
 echo "<pre>";
-$searcher->timestampQuery('addtime', '2012-12-25')->sort(array('addtime' => 'asc'));
-print_r($searcher->search(array('page' => 2)));
+$searcher->setRows(10)
+        ->dateRangeQuery('createdtime', '2012-01-01', '2013-01-01')
+        ->defaultQuery('周星驰')
+        ->sort(array('addtime' => 'desc'));
+print_r($searcher->search());
 
 ?>
