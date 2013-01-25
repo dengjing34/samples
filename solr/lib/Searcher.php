@@ -13,12 +13,10 @@ abstract class Searcher {
     const DEFAULT_WT = 'json';
     const DEFAULT_QUERY = '*:*';
     const DEFAULT_ROWS = 10;    
-    private static $host = array(), $cores = array(), $counter = 0, $rows = array();
+    private static $host = array(), $cores = array(), $counter = 0, $rows = array(), $fieldList = array();
     private $q = self::DEFAULT_QUERY, $fq = array(), $sort = array(), $isWait = false, $page = 1;
     
-    private function __construct() {
-        ;
-    }
+    abstract protected function __construct();
     
     /**
      * 初始化一core的信息
@@ -27,6 +25,7 @@ abstract class Searcher {
      * $options = array(
      *     'core' => 'your core name',
      *     'rows' => 10//指定每次请求返回的行数 不指定默认为10条
+     *     'fl' => array('id', 'title')//指定返回的数据字段(field list), 不指定默认只返回id
      * )
      * </pre>
      * @return \Searcher
@@ -41,6 +40,7 @@ abstract class Searcher {
         }        
         self::$cores[$this->className()] = $options['core'];//core name
         self::$rows[$this->className()] = isset($options['rows']) && ctype_digit((string)$options['rows']) && $options['rows'] <= self::MAX_ROWS ? $options['rows'] : self::DEFAULT_ROWS;
+        self::$fieldList[$this->className()] = isset($options['fl']) && is_array($options['fl']) && !empty($options['fl']) ? $options['fl'] : array('id');
         return $this;
     }
     
@@ -131,6 +131,34 @@ abstract class Searcher {
         return $this;
     }
     
+    /**
+     * 获取当前设置的fl (field list)
+     * @return array field list数组
+     */
+    public function getFieldList() {
+        return self::$fieldList[$this->className()];
+    }
+    
+    /**
+     * 指定field list的字段
+     * @param array $fieldList 指定的filed list字段
+     * @return \Searcher
+     */
+    public function setFieldList(array $fieldList) {        
+        foreach (array_diff($fieldList, $this->getFieldList()) as $field) {            
+            self::$fieldList[$this->className()][] = $field;
+        }
+        return $this;
+    }
+
+    /**
+     * 解析field list的参数
+     * @return string 用于solr查询的field list参数
+     */
+    private function parseFl() {
+        return implode(',', $this->getFieldList());
+    }
+
     /**
      * 指定当前页码
      * @param int $page 当前的页码不是正整数的情况默认为1
@@ -319,7 +347,8 @@ abstract class Searcher {
         $options['sort'] = $this->parseSort();
         $options['rows'] = $this->getRows();
         $options['page'] = $this->page;
-        $options['start'] = ($options['page'] - 1) * $options['rows'];        
+        $options['start'] = ($options['page'] - 1) * $options['rows'];
+        $options['fl'] = $this->parseFl();
         if ($data = $this->request($this->buildUrl($q, $options), $this->isWait)) {
             $data = json_decode($data, true);
             $result['currentPage'] = $options['page'];
@@ -350,8 +379,9 @@ abstract class Searcher {
             'q' => strlen(trim($q)) == 0 ? self::DEFAULT_QUERY : $q,            
             'wt' => self::DEFAULT_WT,            
             'rows' => $options['rows'],
-            'start' => $options['start'],
+            'start' => $options['start'],            
         );
+        if (isset($options['fl'])) $params['fl'] = $options['fl'];
         if (isset($options['sort'])) $params['sort'] = $options['sort'];
         if (!empty($options['fq'])) $params['fq'] = $options['fq'];        
         return "{$this->slaveCore()}?" . http_build_query($params);
