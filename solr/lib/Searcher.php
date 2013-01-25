@@ -155,7 +155,7 @@ abstract class Searcher {
      * 解析field list的参数
      * @return string 用于solr查询的field list参数
      */
-    private function parseFl() {
+    private function parseFieldList() {
         return implode(',', $this->getFieldList());
     }
 
@@ -348,7 +348,7 @@ abstract class Searcher {
         $options['rows'] = $this->getRows();
         $options['page'] = $this->page;
         $options['start'] = ($options['page'] - 1) * $options['rows'];
-        $options['fl'] = $this->parseFl();
+        $options['fl'] = $this->parseFieldList();
         if ($data = $this->request($this->buildUrl($q, $options), $this->isWait)) {
             $data = json_decode($data, true);
             $result['currentPage'] = $options['page'];
