@@ -14,7 +14,7 @@ abstract class Searcher {
     const DEFAULT_QUERY = '*:*';
     const DEFAULT_ROWS = 10;    
     private static $host = array(), $cores = array(), $counter = 0, $rows = array(), $fieldList = array();
-    private $q = self::DEFAULT_QUERY, $fq = array(), $sort = array(), $isWait = false, $page = 1;
+    private $q = self::DEFAULT_QUERY, $fq = array(), $sort = array(), $isWait = false, $page = 1, $facetField = array(), $facetQuery = array();
     
     abstract protected function __construct();
     
@@ -202,10 +202,9 @@ abstract class Searcher {
      * @return \Searcher
      */
     public function rangeQuery($field, $lower = '*', $upper = '*') {
-        if (strlen(trim($field)) != 0) {
-            $this->query($field, "[{$lower} TO {$upper}]");
-        }        
-        return $this;
+        $lower = strlen(trim($lower)) == 0 ? '*' : $lower;
+        $upper = strlen(trim($upper)) == 0 ? '*' : $upper;
+        return $this->query($field, "[{$lower} TO {$upper}]");                        
     }
     
     /**
@@ -289,8 +288,7 @@ abstract class Searcher {
      */
     private function parseFq() {        
         return implode(' ', $this->fq);
-    }
-    
+    }    
     
     /**
      * 格式化时间为solr的date类型时间
@@ -363,7 +361,158 @@ abstract class Searcher {
         }
         return $result;
     }        
+
+    /**
+     * 自定义查询条件的层面搜索(facet query)
+     * @param type $field 查询的字段 不能为空 
+     * @param type $value 查询的值 不能为空
+     * @return \Searcher 
+     */
+    public function facetQuery($field, $value) {
+        if (strlen(trim($field)) > 0 && strlen(trim($value)) > 0) {
+            $this->facetQuery[] = "{$field}:{$value}";
+        }
+        return $this;
+    }
     
+    /**
+     * 自定义范围的层面搜索(facet query)
+     * @param type $field 查询的字段 不能为空 其在solr中的fieldType需要是date或tdate类型 如2000-01-01T01:01:01Z
+     * @param type $start 查询字段的开始值 为空则会自动用*替换
+     * @param type $end 查询字段的结束值 为空则会自动用*替换
+     * @return \Searcher
+     */
+    public function facetRangeQuery($field, $start = '*', $end = '*') {
+        $start = strlen(trim($start)) == 0 ? '*' : $start;
+        $end = strlen(trim($end)) == 0 ? '*' : $end;
+        return $this->facetQuery($field, "[{$start} TO {$end}]");
+    }
+    
+    /**
+     * 自定义时间范围的层面搜索(facet query) 查询字段需要是索引的date或tdate类型
+     * @param type $field 查询的字段 不能为空
+     * @param type $startDateTime 时间范围开始值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空则不限
+     * @param type $endDateTime 时间范围结束值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空则不限
+     * @return \Searcher
+     */
+    public function facetDateRangeQUery($field, $startDateTime = '*', $endDateTime = '*') {
+        $pattern = '/^\d{4}-([0][1-9]|1[012])-([012][0-9]|3[01])$|^\d{4}-([0][1-9]|1[012])-([012][0-9]|3[01])\s([01][0-9]|2[0123]):[0-5][0-9](:[0-5][0-9])?$|^\*$/';
+        if (strlen(trim($startDateTime)) == 0) $startDateTime = '*';
+        if (strlen(trim($endDateTime)) == 0) $endDateTime = '*';
+        if (preg_match($pattern, $startDateTime) && preg_match($pattern, $endDateTime)) {            
+            $startDateTime = $startDateTime != '*' ? $this->formatDateTime($startDateTime) : $startDateTime;
+            $endDateTime = $endDateTime != '*' ? $this->formatDateTime($endDateTime) : $endDateTime;
+            $this->facetRangeQuery($field, $startDateTime, $endDateTime);            
+        }
+        return $this;        
+    }
+    
+    /**
+     * 自定义时间范围的层面搜索(facet query) 查询字段需要是索引的timestamp
+     * @param type $field 查询字段 其在solr中的fieldType需要是int或tint等数字类型 如1325350861
+     * @param type $startDateTime 时间范围开始值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空为不限
+     * @param type $endDateTime 时间范围结束值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空为不限
+     * @return \Searcher
+     */
+    public function facetTimestampRangeQuery($field, $startDateTime = '*', $endDateTime = '*') {
+        $pattern = '/^\d{4}-([0][1-9]|1[012])-([012][0-9]|3[01])$|^\d{4}-([0][1-9]|1[012])-([012][0-9]|3[01])\s([01][0-9]|2[0123]):[0-5][0-9](:[0-5][0-9])?$|^\*$/';
+        if (strlen(trim($startDateTime)) == 0) $startDateTime = '*';
+        if (strlen(trim($endDateTime)) == 0) $endDateTime = '*';
+        if (preg_match($pattern, $startDateTime) && preg_match($pattern, $endDateTime)) {
+            $startDateTime = $startDateTime != '*' ? strtotime($startDateTime) : $startDateTime;
+            $endDateTime = $endDateTime != '*' ? strtotime($endDateTime) : $endDateTime;
+            $this->facetRangeQuery($field, $startDateTime, $endDateTime);
+        }
+        return $this;
+    }
+
+    /**
+     * 根据字段来进行层面搜索(facet query)
+     * @param sting|array $field 需要进行facet query的字段 可以是字符或数组
+     * @return \Searcher 
+     */
+    public function facetField($field) {
+        if (is_string($field) && !in_array($field, $this->facetField)) {
+            $this->facetField[] = $field;
+        } elseif (is_array($field)) {
+            foreach (array_diff($field, $this->facetField) as $eachField) {
+                $this->facetField[] = $eachField;
+            }
+        }
+        return $this;
+    }
+    
+    public function facetSort() {
+        
+    }
+    
+    public function facetLimit() {
+        
+    }
+
+    public function facetPrefix() {
+        
+    }
+    /**
+     * 层面搜索(facet query)的结果
+     * @return boolean|array 层面搜索的结果请求失败为false 请求成功为几个层面搜索结果的数组
+     * <pre>
+     * <code>
+     * $result = array(
+     *     'facet_queries' => array(
+     *         'createdtime:[2013-01-01T00:00:00Z TO 2013-01-02T00:00:00Z]' => 31,
+     *         'addtime:[1356969600 TO 1357056000]' => 34,
+     *     ),
+     *     'facet_fields' => array(
+     *         'cid' => array(
+     *             12 => 3255,
+     *             15 => 2250,
+     *             8 => 2076,
+     *         ),
+     *         'language' => array(
+     *             '' => 16486,
+     *             '英语' => 1548,
+     *             '国语' => 1272,
+     *             '日语' => 425,
+     *         ),
+     *     ),
+     *     'facet_dates' => array(
+     * 
+     * 
+     *     ),
+     *     'facet_ranges' => array(
+     * 
+     * 
+     *     ),
+     * );
+     * </code>
+     * </pre> 
+     */
+    public function facetSearch() {
+        $result = false;
+        $q = $this->q;
+        if (!empty($this->facetField)) $options['facet.field'] = $this->facetField;
+        if (!empty($this->facetQuery)) $options['facet.query'] = $this->facetQuery;
+        $options['rows'] = 1;
+        $options['page'] = 1;
+        $options['start'] = 0;
+        $options['fl'] = 'id';//only need id cuz it won't be use anywhere
+        $options['facet'] = 'true';
+        if ($data = $this->request($this->buildUrl($q, $options), $this->isWait)) {
+            $data = json_decode($data, true);                      
+            $result = $data['facet_counts'];
+            if (!empty($result['facet_fields'])) {
+                $result['facet_fields'] = array_map(function($item) {
+                    $result = array();
+                    foreach (array_chunk($item, 2) as $eachChunk) {
+                        $result[$eachChunk[0]] = $eachChunk[1];
+                    }
+                    return $result;
+                }, $result['facet_fields']);
+            }
+        }
+        return $result;        
+    }
     /**
      * 构建请求的url地址
      * @param string $q 请求的default query的内容
@@ -376,7 +525,7 @@ abstract class Searcher {
      *     'fq' => 'createdtime:[* TO 2013-01-16T00:12:13Z]',//filter query字符
      * );
      * </pre>
-     * @return type
+     * @return string 请求的url
      */
     private function buildUrl($q = '', array $options = array()) {
         $params = array(
@@ -386,10 +535,12 @@ abstract class Searcher {
             'rows' => $options['rows'],
             'start' => $options['start'],            
         );
-        if (isset($options['fl'])) $params['fl'] = $options['fl'];
-        if (isset($options['sort'])) $params['sort'] = $options['sort'];
+        foreach (array('fl', 'sort', 'facet.field', 'facet.query', 'facet') as $v) {
+            if (isset($options[$v])) $params[$v] = $options[$v];
+        }
         if (!empty($options['fq'])) $params['fq'] = $options['fq'];        
-        return "{$this->slaveCore()}?" . http_build_query($params);
+        $pattern = '/%5B\d?%5D=/';
+        return "{$this->slaveCore()}?" . preg_replace($pattern, '=', http_build_query($params));
     }
     
     /**
