@@ -25,7 +25,7 @@ abstract class Searcher {
      * $options = array(
      *     'core' => 'your core name',
      *     'rows' => 10//指定每次请求返回的行数 不指定默认为10条
-     *     'fl' => array('id', 'title')//指定返回的数据字段(field list), 不指定默认只返回id
+     *     'fieldList' => array('id', 'title')//指定返回的数据字段(field list), 不指定默认只返回id
      * )
      * </pre>
      * @return \Searcher
@@ -40,7 +40,7 @@ abstract class Searcher {
         }        
         self::$cores[$this->className()] = $options['core'];//core name
         self::$rows[$this->className()] = isset($options['rows']) && ctype_digit((string)$options['rows']) && $options['rows'] <= self::MAX_ROWS ? $options['rows'] : self::DEFAULT_ROWS;
-        self::$fieldList[$this->className()] = isset($options['fl']) && is_array($options['fl']) && !empty($options['fl']) ? $options['fl'] : array('id');
+        self::$fieldList[$this->className()] = isset($options['fieldList']) && is_array($options['fieldList']) && !empty($options['fieldList']) ? $options['fieldList'] : array('id');
         return $this;
     }
     
@@ -68,7 +68,7 @@ abstract class Searcher {
      * @return boolean|json 失败返回false,成功返回请求的结果,默认是根据self::DEFAULT_WT来返回json数据
      */
     private function request($url, $wait = false, array $postData = array()) {        
-        $timeout = $wait ? 25 : 1;//if $wait timeout after 25s, otherwise timeout after 1s
+        $timeout = $wait ? 25 : 3;//if $wait timeout after 25s, otherwise timeout after 3s
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_HEADER, false);//if get binary data need to set header false
@@ -145,6 +145,7 @@ abstract class Searcher {
      * @return \Searcher
      */
     public function setFieldList(array $fieldList) {        
+        self::$fieldList[$this->className()] = array('id');
         foreach (array_diff($fieldList, $this->getFieldList()) as $field) {            
             self::$fieldList[$this->className()][] = $field;
         }
@@ -223,12 +224,14 @@ abstract class Searcher {
     /**
      * 搜索某一段时间范围的结果 查询字段需要是索引的date或tdate类型
      * @param string $field 查询字段 其在solr中的fieldType需要是date或tdate类型 如2000-01-01T01:01:01Z
-     * @param type $startDateTime 时间范围开始值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*为不限
-     * @param type $endDateTime 时间范围结束值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*为不限
+     * @param type $startDateTime 时间范围开始值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空则不限
+     * @param type $endDateTime 时间范围结束值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空则不限
      * @return \Searcher
      */
     public function dateRangeQuery($field, $startDateTime = '*', $endDateTime = '*') {
-        $pattern = '/^\d{4}-([0][1-9]|1[012])-([012][0-9]|3[01])$|^\d{4}-([0][1-9]|1[012])-([012][0-9]|3[01])\s([01][0-9]|2[0123]):[0-5][0-9](:[0-5][0-9])?$|^\*$/';        
+        $pattern = '/^\d{4}-([0][1-9]|1[012])-([012][0-9]|3[01])$|^\d{4}-([0][1-9]|1[012])-([012][0-9]|3[01])\s([01][0-9]|2[0123]):[0-5][0-9](:[0-5][0-9])?$|^\*$/';
+        if (strlen(trim($startDateTime)) == 0) $startDateTime = '*';
+        if (strlen(trim($endDateTime)) == 0) $endDateTime = '*';
         if (preg_match($pattern, $startDateTime) && preg_match($pattern, $endDateTime)) {            
             $startDateTime = $startDateTime != '*' ? $this->formatDateTime($startDateTime) : $startDateTime;
             $endDateTime = $endDateTime != '*' ? $this->formatDateTime($endDateTime) : $endDateTime;
@@ -240,12 +243,14 @@ abstract class Searcher {
     /**
      * 搜索某一段时间范围的结果 查询字段需要是索引的timestamp
      * @param type $field 查询字段 其在solr中的fieldType需要是int或tint等数字类型 如1325350861
-     * @param type $startDateTime 时间范围开始值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*为不限
-     * @param type $endDateTime 时间范围结束值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*为不限
+     * @param type $startDateTime 时间范围开始值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空为不限
+     * @param type $endDateTime 时间范围结束值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空为不限
      * @return \Searcher
      */
     public function timestampRangeQuery($field, $startDateTime = '*', $endDateTime = '*') {
         $pattern = '/^\d{4}-([0][1-9]|1[012])-([012][0-9]|3[01])$|^\d{4}-([0][1-9]|1[012])-([012][0-9]|3[01])\s([01][0-9]|2[0123]):[0-5][0-9](:[0-5][0-9])?$|^\*$/';
+        if (strlen(trim($startDateTime)) == 0) $startDateTime = '*';
+        if (strlen(trim($endDateTime)) == 0) $endDateTime = '*';
         if (preg_match($pattern, $startDateTime) && preg_match($pattern, $endDateTime)) {
             $startDateTime = $startDateTime != '*' ? strtotime($startDateTime) : $startDateTime;
             $endDateTime = $endDateTime != '*' ? strtotime($endDateTime) : $endDateTime;
@@ -344,7 +349,7 @@ abstract class Searcher {
         $result = false;
         $q = $this->q;
         $options['fq'] = $this->parseFq();
-        $options['sort'] = $this->parseSort();
+        if (!empty($this->sort)) $options['sort'] = $this->parseSort();
         $options['rows'] = $this->getRows();
         $options['page'] = $this->page;
         $options['start'] = ($options['page'] - 1) * $options['rows'];
@@ -414,7 +419,7 @@ abstract class Searcher {
      * @return string 排序的查询字符
      */
     private function parseSort() {
-        return implode(' ', array_map(function($field, $sort) {
+        return implode(',', array_map(function($field, $sort) {
             return "{$field} {$sort}";
         }, array_keys($this->sort), $this->sort));                    
     }
