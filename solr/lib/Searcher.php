@@ -573,7 +573,7 @@ abstract class Searcher {
      * <pre>
      * <code>
      * $result = array(
-     *     "facet_queries' => array(
+     *     'facet_queries' => array(
      *         'createdtime:[2013-01-01T00:00:00Z TO 2013-01-02T00:00:00Z]' => 31,
      *         'addtime:[1356969600 TO 1357056000]' => 34,
      *     ),
@@ -591,12 +591,30 @@ abstract class Searcher {
      *         ),
      *     ),
      *     'facet_dates' => array(
-     * 
+     *         'createdtime' => array(
+     *             '2012-12-30T00:00:00Z' => 38,
+     *             '2012-12-31T00:00:00Z' => 38,
+     *             '2013-01-01T00:00:00Z' => 38,
+     *             ...
+     *             'gap' => +1DAY,
+     *             'start' => '2012-12-30T00:00:00Z',
+     *             'end' => '2013-01-28T00:00:00Z',
+     *         )
      * 
      *     ),
      *     'facet_ranges' => array(
-     * 
-     * 
+     *         'hits' => array(
+     *             'counts' => array(
+     *                 '100-150' => 646,
+     *                 '150-200' => 426,
+     *                 '200-250' => 256,
+     *                 ...
+     *                 '450-500' => 17,
+     *             )
+     *             'gap' => 50,
+     *             'start' => 100,
+     *             'end' => 500,
+     *         )
      *     ),
      * );
      * </code>
