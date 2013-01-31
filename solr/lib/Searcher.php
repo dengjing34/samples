@@ -19,6 +19,26 @@ abstract class Searcher {
     private $q = self::DEFAULT_QUERY, $fq = array(), $sort = array(), $isWait = false, $page = 1;
     private $facetField = array(), $facetQuery = array(), $facetLimit = 100, $facetSort = self::FACET_SORT_COUNT, $facetOffset = 0, $facetMincount = 0;
     private $facetDateQuery = array(), $facetRangeQuery = array();
+    /**
+     * 是否highlight
+     * @var boolean 
+     */
+    private $hl = false;
+    /**
+     * 需要highlight的字段,留空的话就只会highlight schema.xml中的defaultSearchField, 默认为空
+     * @var array 
+     */
+    private $hlFieldList = array(); 
+    /**
+     * 字段中highlight片段的个数,默认为1个,即只会高亮匹配到的第一个
+     * @var int 
+     */
+    private $hlSnippets = 1;
+    /**
+     * highlight的字段返回的字符个数,默认为100个字符
+     * @var int 
+     */
+    private $hlFragsize = 100;
     
     abstract protected function __construct();
     
@@ -71,7 +91,7 @@ abstract class Searcher {
      * @param array $postData 需要提交的数据
      * @return boolean|json 失败返回false,成功返回请求的结果,默认是根据self::DEFAULT_WT来返回json数据
      */
-    private function request($url, $wait = false, array $postData = array()) {        
+    private function request($url, $wait = false, array $postData = array()) {                
         $timeout = $wait ? 25 : 3;//if $wait timeout after 25s, otherwise timeout after 3s
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -245,9 +265,9 @@ abstract class Searcher {
     
     /**
      * 搜索某一段时间范围的结果 查询字段需要是索引的timestamp
-     * @param type $field 查询字段 其在solr中的fieldType需要是int或tint等数字类型 如1325350861
-     * @param type $startDateTime 时间范围开始值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空为不限
-     * @param type $endDateTime 时间范围结束值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空为不限
+     * @param string $field 查询字段 其在solr中的fieldType需要是int或tint等数字类型 如1325350861
+     * @param string $startDateTime 时间范围开始值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空为不限
+     * @param string $endDateTime 时间范围结束值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空为不限
      * @return \Searcher
      */
     public function timestampRangeQuery($field, $startDateTime = '*', $endDateTime = '*') {
@@ -308,7 +328,7 @@ abstract class Searcher {
     
     /**
      * 过滤q(default query)的查询字符
-     * @param type $value 查询的字符
+     * @param string $value 查询的字符
      * @return string 过滤后的查询字符
      */
     private function solrEscape($value) {        
@@ -356,20 +376,28 @@ abstract class Searcher {
         $options['page'] = $this->page;
         $options['start'] = ($options['page'] - 1) * $options['rows'];
         $options['fl'] = $this->parseFieldList();
+        if ($this->hl) {
+            $options['hl'] = 'true';
+            $options['hl.fl'] = implode(',', $this->hlFieldList);
+            foreach (array('hl.fragsize' => 'hlFragsize', 'hl.snippets' => 'hlSnippets') as $hlParam => $hlProperty) {
+                $options[$hlParam] = $this->{$hlProperty};
+            }
+        }
         if ($data = $this->request($this->buildUrl($q, $options), $this->isWait)) {
-            $data = json_decode($data, true);
+            $data = json_decode($data, true);            
             $result['currentPage'] = $options['page'];
             $result['totalPage'] = ceil($data['response']['numFound'] / $options['rows']);
             $result['rows'] = $options['rows'];            
-            $result += $data['response'];
+            $result += $data['response'];            
+            if ($this->hl) $result['highlighting'] = $data['highlighting'];            
         }
         return $result;
     }        
 
     /**
      * 自定义查询条件的层面搜索(facet query)
-     * @param type $field 查询的字段 不能为空 
-     * @param type $value 查询的值 不能为空
+     * @param sting $field 查询的字段 不能为空 
+     * @param string $value 查询的值 不能为空
      * @return \Searcher 
      */
     public function facetQuery($field, $value) {
@@ -381,9 +409,9 @@ abstract class Searcher {
     
     /**
      * 自定义范围的层面搜索(facet query)
-     * @param type $field 查询的字段 不能为空 其在solr中的fieldType需要是date或tdate类型 如2000-01-01T01:01:01Z
-     * @param type $start 查询字段的开始值 为空则会自动用*替换
-     * @param type $end 查询字段的结束值 为空则会自动用*替换
+     * @param string $field 查询的字段 不能为空 其在solr中的fieldType需要是date或tdate类型 如2000-01-01T01:01:01Z
+     * @param string $start 查询字段的开始值 为空则会自动用*替换
+     * @param string $end 查询字段的结束值 为空则会自动用*替换
      * @return \Searcher
      */
     public function facetQueryRange($field, $start = '*', $end = '*') {
@@ -394,9 +422,9 @@ abstract class Searcher {
     
     /**
      * 自定义时间范围的层面搜索(facet query) 查询字段需要是索引的date或tdate类型
-     * @param type $field 查询的字段 不能为空
-     * @param type $startDateTime 时间范围开始值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空则不限
-     * @param type $endDateTime 时间范围结束值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空则不限
+     * @param string $field 查询的字段 不能为空
+     * @param string $startDateTime 时间范围开始值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空则不限
+     * @param string $endDateTime 时间范围结束值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空则不限
      * @return \Searcher
      */
     public function facetQueryDateRange($field, $startDateTime = '*', $endDateTime = '*') {
@@ -413,9 +441,9 @@ abstract class Searcher {
     
     /**
      * 自定义时间范围的层面搜索(facet query) 查询字段需要是索引的timestamp
-     * @param type $field 查询字段 其在solr中的fieldType需要是int或tint等数字类型 如1325350861
-     * @param type $startDateTime 时间范围开始值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空为不限
-     * @param type $endDateTime 时间范围结束值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空为不限
+     * @param string $field 查询字段 其在solr中的fieldType需要是int或tint等数字类型 如1325350861
+     * @param string $startDateTime 时间范围开始值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空为不限
+     * @param string $endDateTime 时间范围结束值,支持yyyy-mm-dd | yyyy-mm-dd hh:mm | yyyy-mm-dd hh:mm:ss 的格式 用*或为空为不限
      * @return \Searcher
      */
     public function facetQueryTimestampRange($field, $startDateTime = '*', $endDateTime = '*') {
@@ -457,10 +485,10 @@ abstract class Searcher {
     
     /**
      * 各种字段类型的层面范围搜索(包含时间),只要参数正确就会返回对应的层面结果
-     * @param type $field 搜索的字段
-     * @param type $start 范围开始值
-     * @param type $end 范围结束值
-     * @param type $gap 开始值到结束值之间的间隔增量
+     * @param string $field 搜索的字段
+     * @param string $start 范围开始值
+     * @param string $end 范围结束值
+     * @param string $gap 开始值到结束值之间的间隔增量
      */
     public function facetRangeQuery($field, $start, $end, $gap) {
         $this->facetRangeQuery[$field] = array(
@@ -473,7 +501,7 @@ abstract class Searcher {
     
     /**
      * 验证gap是否符合规范
-     * @param type $gap 间隔的时间返回
+     * @param string $gap 间隔的时间返回
      * @return boolean 符合规范返回true, 其他返回false
      */
     private function dateGap($gap) {
@@ -628,7 +656,7 @@ abstract class Searcher {
         $options['rows'] = 0;//need not get any rows
         $options['page'] = 1;
         $options['start'] = 0;
-        $options['fl'] = 'id';//only need id cuz it won't be use anywhere
+        //$options['fl'] = 'id';//only need id cuz it won't be use anywhere
         $options['facet'] = 'true';
         if ($this->facetLimit != 100) $options['facet.limit'] = $this->facetLimit;
         if ($this->facetSort != self::FACET_SORT_COUNT) $options['facet.sort'] = $this->facetSort;
@@ -665,6 +693,46 @@ abstract class Searcher {
         }
         return $result;        
     }
+
+    /**
+     * highlight开关 
+     * @param boolean $bool 设置成true就返回highlight的数据,false不返回
+     * @return \Searcher
+     */
+    public function hl($bool = true) {
+        $this->hl = (bool)$bool;
+        return $this;
+    }
+    
+    /**
+     * highlight指定需要匹配到需要highlight的字段
+     * @param array $fields 需要高亮的字段array
+     * @return \Searcher
+     */
+    public function hlFieldList(array $fields) {        
+        $this->hlFieldList += array_unique(array_diff($fields, $this->hlFieldList));
+        return $this;
+    }
+    
+    /**
+     * highlight匹配到的字段中需要highlight的次数,默认为1次
+     * @param int $num 需要highlight的次数,只能是正整数
+     * @return \Searcher
+     */
+    public function hlSnippets($num) {        
+        $this->hlSnippets = ctype_digit((string)$num) && $num > 0 ? $num : 1;        
+        return $this;
+    }
+    
+    /**
+     * highlight匹配到的字段返回片段的字符长度,默认为100
+     * @param int $size highlight字段的字符长度 默认100,只能是正整数
+     * @return \Searcher
+     */
+    public function hlFragsize($size) {
+        $this->hlFragsize = ctype_digit((string)$size) && $size > 0 ? $size : 100;
+        return $this;
+    }
     
     /**
      * 构建请求的url地址
@@ -689,7 +757,7 @@ abstract class Searcher {
             'rows' => $options['rows'],
             'start' => $options['start'],            
         );
-        foreach (array('fl', 'sort', 'facet.field', 'facet.query', 'facet', 'facet.limit', 'facet.sort', 'facet.offset', 'facet.mincount') as $v) {
+        foreach (array('fl', 'sort', 'facet.field', 'facet.query', 'facet', 'facet.limit', 'facet.sort', 'facet.offset', 'facet.mincount', 'hl', 'hl.fl', 'hl.fragsize', 'hl.snippets') as $v) {
             if (isset($options[$v])) $params[$v] = $options[$v];
         }  
         foreach (array('date', 'range') as $type) {
