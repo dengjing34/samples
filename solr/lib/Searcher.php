@@ -355,7 +355,7 @@ abstract class Searcher {
      * @param string|int $date 可以是时间戳或YYYY-MM-DD | YYYY-MM-DD HH:MM | YYYY-MM-DD HH:MM:SS
      * @return string solr的date类型的查询格式 如 2012-12-13T12:13:14Z
      */
-    private function formatDateTime($date) {
+    public function formatDateTime($date) {
         if (ctype_digit((string)$date)) {
             return date('Y-m-d\TH:i:s\Z', $date);
         }
