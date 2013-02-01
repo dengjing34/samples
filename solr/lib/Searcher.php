@@ -16,9 +16,9 @@ abstract class Searcher {
     const FACET_SORT_COUNT = 'count';
     const FACET_SORT_INDEX = 'index';
     private static $host = array(), $cores = array(), $counter = 0, $rows = array(), $fieldList = array();
-    private $q = self::DEFAULT_QUERY, $fq = array(), $sort = array(), $isWait = false, $page = 1;
+    private $q = self::DEFAULT_QUERY, $fq = array(), $sort = array(), $page = 1;
     private $facetField = array(), $facetQuery = array(), $facetLimit = 100, $facetSort = self::FACET_SORT_COUNT, $facetOffset = 0, $facetMincount = 0;
-    private $facetDateQuery = array(), $facetRangeQuery = array();
+    private $facetDateQuery = array(), $facetRangeQuery = array();    
     /**
      * 是否highlight
      * @var boolean 
@@ -39,6 +39,21 @@ abstract class Searcher {
      * @var int 
      */
     private $hlFragsize = 100;
+    /**
+     * 是否强制访问master 默认为false 可使用$this->forceMaster(true|false)来切换
+     * @var boolean 
+     */
+    private $forceMaster = false;
+    /**
+     * 指定是否长时间等待solr响应,通过$this->setWait(true)来指定长时间等待
+     * @var boolean 
+     */
+    private $isWait = false;    
+    /**
+     * 最后一次请求的错误信息,通过$this->lastError()可以在外部查看
+     * @var array
+     */
+    private $lastError = array();
     
     abstract protected function __construct();
     
@@ -83,15 +98,33 @@ abstract class Searcher {
     private function coreName() {
         return self::$cores[$this->className()];
     }
+    
+    /**
+     * 强制切换到master进行操作, 在$this->buildUrl()的时候会用$this->masterCore()的url,并在切换回来之前都一直从master访问
+     * @param boolean $bool true或false, 默认为true
+     * @return \Searcher
+     */
+    public function forceMaster($bool = true) {
+        $this->forceMaster = (bool)$bool;
+        return $this;
+    }
+    
+    /**
+     * 返回最后一次请求的错误信息
+     * @return array solr返回的错误信息
+     */
+    public function lastError() {
+        return $this->lastError;
+    }
 
     /**
-     * 
+     * 用curl请求solr地址
      * @param string $url solr的请求地址
      * @param boolean $wait 是否等待到成功 最多等待25秒
-     * @param array $postData 需要提交的数据
+     * @param string|array $postData 需要提交的数据
      * @return boolean|json 失败返回false,成功返回请求的结果,默认是根据self::DEFAULT_WT来返回json数据
      */
-    private function request($url, $wait = false, array $postData = array()) {                
+    private function request($url, $wait = false, $postData = null) {        
         $timeout = $wait ? 25 : 3;//if $wait timeout after 25s, otherwise timeout after 3s
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -101,14 +134,17 @@ abstract class Searcher {
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
         if (!empty($postData)) {
-            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, Array("Content-Type: application/json"));
+            curl_setopt($ch, CURLOPT_POST, true);            
             curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
         }        
         $body = curl_exec($ch);
+        $this->lastError = array();
         $this->increaseCounter();
         $info = curl_getinfo($ch);
         $error = curl_error($ch);
         if ($body === false || $info['http_code'] != 200 || $error != '') {
+            if ($body) $this->lastError = json_decode($body, true);
             curl_close($ch);
             return false;
         }
@@ -337,10 +373,32 @@ abstract class Searcher {
     }
 
 
-    public function update() {
-        
+    /**
+     * 更新solr索引
+     * @param array $data 需要更新的数据
+     * @param boolean $commit 是否进行commit操作,默认为执行提交
+     * @return boolean 成功返回true,失败false,若失败可以用$this->lastError()查看出错信息
+     */
+    public function update(array $data, $commit = true) {
+        $params = array(
+            'master' => true,
+            'requestHandler' => self::URI_UPDATE,
+        );
+        if ((bool)$commit) $params['commit'] = 'true';
+        $url = $this->buildUrl('', $params);
+        $json = empty($data) ? null : json_encode(array($data));
+        return $this->request($url, $this->isWait, $json);
     }
     
+    /**
+     * 执行solr的commit操作
+     * @return boolean 成功返回true,失败返回false,若失败可以用$this->lastError()查看出错信息
+     */
+    public function commit() {
+        return $this->update(array(), true);
+    }
+
+
     /**
      * 根据q[default query], fq[filter query], sort 来搜索得出结果
      * @return array 查询结果 
@@ -740,6 +798,8 @@ abstract class Searcher {
      * @param array $options 其他参数
      * <pre>
      * $options = array(
+     *     'requestHandler' => 'select',//访问solr core的requestHandler 不指定默认为select
+     *     'master' => true,//需要在访问master时使用 比如update或commit操作 另外$this->forceMaster = true也会访问master 否则默认是访问slave
      *     'rows' => 10,//返回的行数
      *     'start' => 0,//跳过条数
      *     'sort' => 'id desc',//排序规则
@@ -751,13 +811,17 @@ abstract class Searcher {
      */
     private function buildUrl($q = '', array $options = array()) {
         $params = array(
-            'omitHeader' => 'true',//忽略请求状态和时间
-            'q' => strlen(trim($q)) == 0 ? self::DEFAULT_QUERY : $q,            
-            'wt' => self::DEFAULT_WT,            
-            'rows' => $options['rows'],
-            'start' => $options['start'],            
+            'omitHeader' => 'true',//忽略请求状态和时间                        
+            'wt' => self::DEFAULT_WT,          
         );
-        foreach (array('fl', 'sort', 'facet.field', 'facet.query', 'facet', 'facet.limit', 'facet.sort', 'facet.offset', 'facet.mincount', 'hl', 'hl.fl', 'hl.fragsize', 'hl.snippets') as $v) {
+        if (strlen(trim($q)) > 0) $params['q'] = $q;
+        $optional = array(
+            'rows', 'start', 'fl', 'sort',
+            'facet.field', 'facet.query', 'facet', 'facet.limit', 'facet.sort', 'facet.offset', 'facet.mincount',
+            'hl', 'hl.fl', 'hl.fragsize', 'hl.snippets',
+            'commit',
+        );
+        foreach ($optional as $v) {
             if (isset($options[$v])) $params[$v] = $options[$v];
         }  
         foreach (array('date', 'range') as $type) {
@@ -771,9 +835,11 @@ abstract class Searcher {
                 }
             }            
         }
-        if (!empty($options['fq'])) $params['fq'] = $options['fq'];        
-        $pattern = '/%5B\d?%5D=/';
-        return "{$this->slaveCore()}?" . preg_replace($pattern, '=', http_build_query($params));
+        if (!empty($options['fq'])) $params['fq'] = $options['fq'];
+        $requestHandler = isset($options['requestHandler']) ? $options['requestHandler'] : self::URI_QUERY;//默认请求'/select'
+        $host = (isset($options['master']) && $options['master']) || $this->forceMaster ? $this->masterCore() : $this->slaveCore();
+        $pattern = '/%5B\d?%5D=/';//replace name[0]=1&name[1]=2 to name=1&name=2
+        return "{$host}{$requestHandler}?" . preg_replace($pattern, '=', http_build_query($params));
     }
     
     /**
@@ -808,6 +874,11 @@ abstract class Searcher {
         }, array_keys($this->sort), $this->sort));                    
     }
     
+    /**
+     * 通过config获取配置的solr的master和slave
+     * @return array 配置的solr地址信息
+     * @throws Exception 配置文件找不到
+     */
     private function host() {
         if (empty(self::$host)) {
             try {
@@ -819,6 +890,11 @@ abstract class Searcher {
         return self::$host;
     }
     
+    /**
+     * 获取配置文件中solr的master地址
+     * @return string solr的master访问地址
+     * @throws Exception 找不到配置master的地址
+     */
     private function master() {
         $host = $this->host();
         if (isset($host[self::HOST_MASTER]['host'])) {
@@ -828,6 +904,11 @@ abstract class Searcher {
         }
     }        
 
+    /**
+     * 获取配置文件中solr的slave的地址
+     * @return string solr的slave访问地址
+     * @throws Exception 找不到配置的slave地址
+     */
     private function slave() {
         $host = $this->host();
         if (isset($host[self::HOST_SLAVE]['host'])) {
@@ -837,12 +918,20 @@ abstract class Searcher {
         }
     }
     
+    /**
+     * 获取solr core的master访问地址
+     * @return string solr core的master地址
+     */
     private function masterCore() {
         return "{$this->master()}{$this->coreName()}/";
     }
     
+    /**
+     * 获取solr core的slave访问地址
+     * @return string
+     */
     private function slaveCore() {
-        return "{$this->slave()}{$this->coreName()}/" . self::URI_QUERY;
+        return "{$this->slave()}{$this->coreName()}/";
     }        
 }
 
