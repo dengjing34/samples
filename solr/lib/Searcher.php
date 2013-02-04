@@ -9,6 +9,7 @@ abstract class Searcher {
     const HOST_SLAVE = 'slave';
     const URI_QUERY = 'select';
     const URI_UPDATE = 'update';
+    const URI_LUKE = 'admin/luke';
     const MAX_ROWS = 1000;
     const DEFAULT_WT = 'json';
     const DEFAULT_QUERY = '*:*';
@@ -114,6 +115,7 @@ abstract class Searcher {
      * @return array solr返回的错误信息
      */
     public function lastError() {
+        echo $this->lastError;
         return $this->lastError;
     }
 
@@ -143,7 +145,7 @@ abstract class Searcher {
         $this->increaseCounter();
         $info = curl_getinfo($ch);
         $error = curl_error($ch);
-        if ($body === false || $info['http_code'] != 200 || $error != '') {
+        if ($body === false || $info['http_code'] != 200 || $error != '') {            
             if ($body) $this->lastError = json_decode($body, true);
             curl_close($ch);
             return false;
@@ -376,6 +378,27 @@ abstract class Searcher {
     /**
      * 更新solr索引
      * @param array $data 需要更新的数据
+     * <pre>
+     * single data update
+     * $data = array(
+     *     'id' => 1,
+     *     'title' => 'my title',
+     *     ...
+     * );
+     * multi data update
+     * $data = array(
+     *     array(
+     *         'id' => 1,
+     *         'title' => 'my title1',
+     *         ...
+     *     ),
+     *     array(
+     *         'id' => 2,
+     *         'title' => 'my title2',
+     *     ),
+     *     ...
+     * );
+     * </pre>
      * @param boolean $commit 是否进行commit操作,默认为执行提交
      * @return boolean 成功返回true,失败false,若失败可以用$this->lastError()查看出错信息
      */
@@ -386,7 +409,14 @@ abstract class Searcher {
         );
         if ((bool)$commit) $params['commit'] = 'true';
         $url = $this->buildUrl('', $params);
-        $json = empty($data) ? null : json_encode(array($data));
+        if (!is_array(current($data))) $data = array($data);//single data       
+        if (empty($data)) {
+            $json = null;
+        } elseif (isset($data['delete'])) {
+            $json = json_encode($data);//for delete
+        } else {
+            $json = json_encode(array_values($data));//for update
+        }        
         return $this->request($url, $this->isWait, $json);
     }
     
@@ -397,7 +427,79 @@ abstract class Searcher {
     public function commit() {
         return $this->update(array(), true);
     }
-
+    
+    /**
+     * 通过id在solr中删除一条数据
+     * @param int $id 要删除的id,只能是正整数
+     * @return boolean 成功返回true,失败返回false,失败原因可以用$this->lastError()查看
+     * @throws Exception id不为正整数的时候抛错
+     */
+    public function delete($id) {
+        if (ctype_digit((string)$id) && $id > 0) {
+            $data = array(
+                'delete' => array(
+                    'id' => $id,
+                )
+            );
+            return $this->update($data);             
+        } else {
+            throw new Exception("id:{$id} is not a numeric");
+        }      
+    }
+    
+    /**
+     * 根据id进行批量删除
+     * @param array $ids 需要删除的id, 各个id必须是正整数,否则会过滤掉
+     * @return boolean 成功返回true,失败返回false,若出错可以通过$this->lastError()查看原因
+     * @throws Exception 过滤后的ids为空数组的情况
+     */
+    public function deleteByIds(array $ids) {
+       $ids = array_filter($ids, function($v) {
+            return ctype_digit((string) $v) && $v > 0 ? true : false;
+        });
+        if (!empty($ids)) {
+            $query = 'id:(' . implode(' OR ', $ids) . ')';
+            try {
+                return $this->deleteByQuery($query);
+            } catch (Exception $e) {
+                throw new Exception($e->getMessage());
+            }
+        } else {
+            throw new Exception('ids is empty');
+        }
+    }
+    
+    /**
+     * 根据条件删除solr中的数据
+     * @param string $query 符合 solr 查询语法的查询条件
+     * @return boolean
+     * @throws Exception query为空的情况
+     */
+    public function deleteByQuery($query) {
+        if (strlen(trim($query)) == 0) throw new Exception('a query syntax is required');
+        $data = array(
+            'delete' => array(
+                'query' => $query,
+            )
+        );
+        return $this->update($data);
+    }
+    
+    /**
+     * 获取当前solr core的schema
+     * @return boolean|array
+     */
+    public function schema() {
+        $parmas = array(
+            'show' => 'schema',
+            'requestHandler' => self::URI_LUKE,
+        );
+        $url = $this->buildUrl('', $parmas);
+        if ($body = $this->request($url)) {
+            return json_decode($body, true);
+        }
+        return false;
+    }
 
     /**
      * 根据q[default query], fq[filter query], sort 来搜索得出结果
@@ -820,6 +922,7 @@ abstract class Searcher {
             'facet.field', 'facet.query', 'facet', 'facet.limit', 'facet.sort', 'facet.offset', 'facet.mincount',
             'hl', 'hl.fl', 'hl.fragsize', 'hl.snippets',
             'commit',
+            'show',
         );
         foreach ($optional as $v) {
             if (isset($options[$v])) $params[$v] = $options[$v];
