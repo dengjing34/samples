@@ -16,7 +16,7 @@ abstract class Searcher {
     const DEFAULT_ROWS = 10;
     const FACET_SORT_COUNT = 'count';
     const FACET_SORT_INDEX = 'index';
-    private static $host = array(), $cores = array(), $counter = 0, $rows = array(), $fieldList = array();
+    private static $host = array(), $cores = array(), $counter = 0, $rows = array(), $fieldList = array(), $dbs = array();
     private $q = self::DEFAULT_QUERY, $fq = array(), $sort = array(), $page = 1;
     private $facetField = array(), $facetQuery = array(), $facetLimit = 100, $facetSort = self::FACET_SORT_COUNT, $facetOffset = 0, $facetMincount = 0;
     private $facetDateQuery = array(), $facetRangeQuery = array();    
@@ -64,8 +64,9 @@ abstract class Searcher {
      * <pre>
      * $options = array(
      *     'core' => 'your core name',
-     *     'rows' => 10//指定每次请求返回的行数 不指定默认为10条
+     *     'rows' => 10,//指定每次请求返回的行数 不指定默认为10条
      *     'fieldList' => array('id', 'title')//指定返回的数据字段(field list), 不指定默认只返回id
+     *     'dbObject' => 'MysqlData object',//指定继承于MysqlData的orm类名字
      * )
      * </pre>
      * @return \Searcher
@@ -80,7 +81,8 @@ abstract class Searcher {
         }        
         self::$cores[$this->className()] = $options['core'];//core name
         self::$rows[$this->className()] = isset($options['rows']) && ctype_digit((string)$options['rows']) && $options['rows'] <= self::MAX_ROWS ? $options['rows'] : self::DEFAULT_ROWS;
-        self::$fieldList[$this->className()] = isset($options['fieldList']) && is_array($options['fieldList']) && !empty($options['fieldList']) ? $options['fieldList'] : array('id');
+        self::$fieldList[$this->className()] = isset($options['fieldList']) && is_array($options['fieldList']) && !empty($options['fieldList']) ? $options['fieldList'] : array('id');        
+        self::$dbs[$this->className()] = isset($options['dbObject']) && class_exists($options['dbObject']) ? $options['dbObject'] : null;       
         return $this;
     }
     
@@ -114,9 +116,41 @@ abstract class Searcher {
      * 返回最后一次请求的错误信息
      * @return array solr返回的错误信息
      */
-    public function lastError() {
-        echo $this->lastError;
+    public function lastError() {        
         return $this->lastError;
+    }
+    
+    /**
+     * 获取init()时指定的数据库类实例 如果没有在init()的时候指定dbObject或指定的dbObject不是MysqlData的子类则返回null
+     * @return MysqlData
+     */
+    private function dbObject() {
+        if (self::$dbs[$this->className()] instanceof MysqlData) {
+            return self::$dbs[$this->className()];
+        } elseif (!is_null(self::$dbs[$this->className()])) {
+            $dbObject = new self::$dbs[$this->className()]();
+            self::$dbs[$this->className()] = $dbObject instanceof MysqlData ? $dbObject : null;
+            return self::$dbs[$this->className()];
+        } else {
+            return null;
+        }        
+    }
+    
+    /**
+     * 通过数据库类实例获取一组ids的数据 若没有指定数据库类或不是MysqlData的子类 直接返回空数组
+     * @param array $keys 需要获取的数据的ids数组
+     * @return array 通过数据库类查找到的数据
+     */
+    private function dbLoadByIds(array $keys) {
+        $result = array();
+        $dbObject = $this->dbObject();
+        if (!is_null($dbObject)) {            
+            $keys = array_filter($keys, function($v) {
+                return ctype_digit((string)$v) && $v > 0 ? true : false;
+            });    
+            $result = $dbObject->loads($keys);            
+        }
+        return $result;
     }
 
     /**
@@ -495,7 +529,7 @@ abstract class Searcher {
             'requestHandler' => self::URI_LUKE,
         );
         $url = $this->buildUrl('', $parmas);
-        if ($body = $this->request($url)) {
+        if (($body = $this->request($url))) {
             return json_decode($body, true);
         }
         return false;
@@ -543,12 +577,18 @@ abstract class Searcher {
                 $options[$hlParam] = $this->{$hlProperty};
             }
         }
-        if ($data = $this->request($this->buildUrl($q, $options), $this->isWait)) {
+        if (($data = $this->request($this->buildUrl($q, $options), $this->isWait))) {
             $data = json_decode($data, true);            
             $result['currentPage'] = $options['page'];
             $result['totalPage'] = ceil($data['response']['numFound'] / $options['rows']);
             $result['rows'] = $options['rows'];            
-            $result += $data['response'];            
+            $result += $data['response'];
+            //如果init()的时候指定了db的对象,则根据查找到的ids来通过db读取数据
+            if (!is_null($this->dbObject()) && !empty($result['docs'])) {
+                $result['docs'] = $this->dbLoadByIds(array_map(function($v){                       
+                    return isset($v['id']) ? $v['id'] : null;
+                }, $result['docs']));    
+            }            
             if ($this->hl) $result['highlighting'] = $data['highlighting'];            
         }
         return $result;
@@ -824,7 +864,7 @@ abstract class Searcher {
         if ($this->facetMincount != 0) $options['facet.mincount'] = $this->facetMincount;
         if (!empty($this->facetDateQuery)) $options += $this->parseFacetQuery('date');
         if (!empty($this->facetRangeQuery)) $options += $this->parseFacetQuery('range');
-        if ($data = $this->request($this->buildUrl($q, $options), $this->isWait)) {
+        if (($data = $this->request($this->buildUrl($q, $options), $this->isWait))) {
             $data = json_decode($data, true);                      
             $result = $data['facet_counts'];
             if (!empty($result['facet_fields'])) {

@@ -21,7 +21,12 @@ class VideoSearcher extends Searcher{
                 'cid',
                 'createdtime',
                 'addtime',
+                'letter',
+                'rank',
+                'status',
+                'intro',
             ),
+            'dbObject' => 'Video',
         );
         parent::init($options);
     }
