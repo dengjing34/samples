@@ -92,15 +92,16 @@ class MysqlData {
      * @return string|null
      */
     private function cacheKey($key) {
+        $prefix = self::CACHE_PREFIX . self::$dbs[$this->className] . "_{$this->className}_";
         if (is_scalar($key) && $key) {
-            return self::CACHE_PREFIX . self::$dbs[$this->className] . "_{$this->className}_{$key}";
+            return $prefix . $key;
         } elseif (is_array($key) && !empty($key)) {
-            return array_map(function($v) {
-                return self::CACHE_PREFIX . self::$dbs[$this->className] . "_{$this->className}_$v";
+            return array_map(function($v) use($prefix) {
+                return $prefix . $v;
             }, $key);
         } else {
             return null;
-        }        
+        }  
     }
     
     /**
