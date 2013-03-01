@@ -47,5 +47,13 @@ class Video extends MysqlData {
         }        
         return parent::save();
     }
+    
+    public static function area() {
+        $o = new self();
+        return $o->groupBy(array('area'), array('count' => '1'), array(
+            'limit' => 20,
+            'order' => array('count' => 'DESC')
+        ));        
+    }
 }
 ?>
