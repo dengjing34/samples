@@ -71,7 +71,7 @@ class Category extends MysqlData {
     }
     
     public static function letter() {
-        return range('a', 'z');
+        return range('A', 'Z');
     }
     
     public static function year($limit = 20) {
