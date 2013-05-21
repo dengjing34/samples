@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title></title>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    </head>
+    <body>
+        <div>
+            SET => name : <input id="setName" /> value: <input id="setValue" /> <button id="setBtn" onclick="mySwfStore.set(document.getElementById('setName').value, document.getElementById('setValue').value);">SET</button> <br />
+            GET => name : <input id="getName" /> value: <input id="getValue" /> <button id="getBtn" onclick="document.getElementById('getValue').value = mySwfStore.get(document.getElementById('getName').value);">GET</button> <br />
+            GETALL:<button onclick="console.log(mySwfStore.getAll());">GETALL</button>
+            
+        </div>
+        <script src="../src/swfstore.js"></script>
+        <script type="text/javascript">
+            var mySwfStore = new SwfStore({        
+                namespace: 'example', // the this must match all other instances that want to share cookies
+                
+                swf_url: '../storage.swf', // to work cross-domain, use the same absolute url on both pages (meaning http://site.com/path/to/store.swf not just /path/to.store.swf)
+                
+                debug: false, // depending on your browser, this will either go to the console or the bottom of the page.
+                
+                onready: function(){
+                    // now that the swfStore was loaded successfully, re-enable everything
+                },                
+                onerror: function(){
+                    // in case we had an error. (The most common cause is that the user disabled flash cookies.)
+                }
+            });            
+        </script>
+    </body>
+</html>
